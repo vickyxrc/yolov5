@@ -5,6 +5,12 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+import datetime
+import sys
+
+# Add YOLOv5 to path (replace with your actual path to the YOLOv5 directory)
+sys.path.append('/path/to/yolov5')  # Replace with actual path if needed
+from models.common import DetectMultiBackend
 
 class TrashcanDetectorNode(Node):
     def __init__(self):
@@ -12,7 +18,8 @@ class TrashcanDetectorNode(Node):
         self.bridge = CvBridge()
         
         # Initialize the YOLOv5 model
-        self.model = torch.hub.load('ultralytics/yolov5', 'custom', path='runs/train/trashcan_detector/weights/best.pt')
+        self.model = DetectMultiBackend(weights='runs/train/trashcan_detector/weights/best.pt')
+        
         # Set up a subscriber to the camera topic
         self.image_sub = self.create_subscription(
             Image,
@@ -36,15 +43,17 @@ class TrashcanDetectorNode(Node):
         results.render()
 
         # Loop through the results and check for trashcan detections (assuming class 0 is 'trashcan')
-        for *xywh, conf, cls in results.xywh[0]:
-            if int(cls) == 0:
+        for det in results.xyxy[0]:  # (x1, y1, x2, y2, conf, class)
+            cls = int(det[5])
+            if cls == 0:  # Assuming class 0 is 'trashcan'
                 self.get_logger().info("Trashcan detected!")
 
                 # Generate a unique filename using the current time
-                filename = os.path.join(self.send_dir, f"trashcan_{cv2.getTickCount()}.jpg")
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                filename = os.path.join(self.send_dir, f"trashcan_{timestamp}.jpg")
                 
                 # Save the current frame to the send_images folder
-                cv2.imwrite(filename, frame)
+                cv2.imwrite(filename, results.ims[0])  # Save the rendered image
 
 def main(args=None):
     rclpy.init(args=args)
