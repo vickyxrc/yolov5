@@ -1,0 +1,5 @@
+train: /home/2_fri/trashcan_dataset/images/train
+val: /home/2_fri/trashcan_dataset/images/val
+
+nc: 1  # number of classes
+names: ['trashcan']
