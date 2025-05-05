@@ -1,0 +1,11 @@
+# Dataset path relative to YOLOv5 root
+path: /home/2_fri/yolo_project/yolov5/trash_can_detection/data
+train: images/train_jpg
+val: images/val_jpg
+test: images/test_jpg
+
+# Number of classes
+nc: 1
+
+# Class names
+names: ['trash_can']
