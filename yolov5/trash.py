@@ -11,7 +11,7 @@ import time
 import numpy as np
 
 # Add YOLOv5 to path
-sys.path.append('/home/2_fri/yolo_project/yolov5') 
+sys.path.append('/home/2_fri/yolov5/yolov5/yolov5')
 
 # Import YOLOv5 modules
 from models.common import DetectMultiBackend
@@ -49,9 +49,9 @@ class TrashcanDetectorNode(Node):
             self.last_detection_conf = 0
             
             # Very high confidence threshold to eliminate false positives
-            self.conf_threshold = 0.6  # Increased to 60% confidence
+            self.conf_threshold = 0.20  # Increased to 25% confidence
             
-            self.iou_threshold = 0.6  # IOU threshold for considering a detection as duplicate
+            self.iou_threshold = 0.5  # IOU threshold for considering a detection as duplicate
             
             # Flag to track if we're debugging (for debugging mode, set to True)
             self.debug_mode = False
@@ -65,45 +65,61 @@ class TrashcanDetectorNode(Node):
         self.cap = None
         self.direct_camera_mode = False
         
-        # Try multiple camera indices
-        for cam_idx in range(4):  # Try cameras 0, 1, 2, 3
+        # Get available camera devices
+        available_cameras = [i for i in range(2) if os.path.exists(f"/dev/video{i}")]
+        
+        if not available_cameras:
+            self.get_logger().error("No camera devices found")
+            return
+            
+        self.get_logger().info(f"Found cameras: {available_cameras}")
+        
+        # Try to open each available camera
+        for cam_idx in available_cameras:
             try:
-                self.get_logger().info(f"Attempting to open camera at index {cam_idx}")
+                # Try opening with default settings
                 cap = cv2.VideoCapture(cam_idx)
                 
                 if not cap.isOpened():
-                    self.get_logger().warn(f"Could not open camera at index {cam_idx}")
+                    self.get_logger().warn(f"Could not open camera {cam_idx}")
                     continue
                 
-                # Configure camera settings
+                # Configure settings
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                cap.set(cv2.CAP_PROP_BRIGHTNESS, 100)
-                cap.set(cv2.CAP_PROP_CONTRAST, 100)
-                cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+                time.sleep(1)  # Give camera time to adjust
                 
-                # Wait for camera to adjust
-                time.sleep(1)
+                # Read frame to verify
+                ret, frame = cap.read()
                 
-                # Try to read a frame
-                ret, test_frame = cap.read()
-                if ret and test_frame is not None and np.mean(test_frame) > 5.0:
+                if ret and frame is not None and frame.size > 0:
                     self.cap = cap
                     self.direct_camera_mode = True
                     self.get_logger().info(f"Successfully opened camera {cam_idx}")
                     
-                    # Only save test frame in debug mode
-                    if self.debug_mode:
-                        test_path = os.path.join(self.send_dir, f"camera_test_{cam_idx}.jpg")
-                        cv2.imwrite(test_path, test_frame)
-                        self.get_logger().info(f"Saved test frame to {test_path}")
-                    break
+                    # Enable debug mode if having camera issues
+                    # self.debug_mode = True
+                    return
                 else:
-                    self.get_logger().warn(f"Camera {cam_idx} returned dark or invalid frame")
+                    self.get_logger().warn(f"Camera {cam_idx} returned invalid frame")
                     cap.release()
-            
+                    
             except Exception as e:
-                self.get_logger().error(f"Error opening camera at index {cam_idx}: {str(e)}")
+                self.get_logger().error(f"Error with camera {cam_idx}: {str(e)}")
+        
+        # Try direct device path as fallback
+        for cam_idx in available_cameras:
+            try:
+                cap = cv2.VideoCapture(f"/dev/video{cam_idx}")
+                if cap.isOpened() and cap.read()[0]:
+                    self.cap = cap
+                    self.direct_camera_mode = True
+                    self.get_logger().info(f"Opened camera using direct path: /dev/video{cam_idx}")
+                    return
+            except:
+                pass
+        
+        self.get_logger().error("Failed to open any camera")
     
     def clear_send_directory(self):
         """Clear all files in the send_images directory"""
@@ -122,8 +138,8 @@ class TrashcanDetectorNode(Node):
         # Initialize the device
         self.device = select_device('')  # '' means CPU, or '0' for first GPU
         
-        # Initialize the YOLOv5 model - Update to your new model path
-        weights_path = '/home/2_fri/yolo_project/yolov5/runs/train/exp3/weights/best.pt'  # Updated to your new model path
+        # Initialize the YOLOv5 model
+        weights_path = '/home/2_fri/yolov5/yolov5/yolov5/runs/train/exp3/weights/best.pt'
         self.model = DetectMultiBackend(weights=weights_path, device=self.device)
         
         # Set stride and names
@@ -268,8 +284,7 @@ class TrashcanDetectorNode(Node):
                         c = int(cls)
                         class_name = self.names[c] if c < len(self.names) else f"class_{c}"
                         
-                        # Updated to match your new model's class name "trash_can" instead of "trashcan"
-                        # This should match exactly what's in data.yaml names list
+                        # Only process if it's a trashcan
                         if class_name.lower() == "trash_can":
                             # Extract bounding box coordinates
                             x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
